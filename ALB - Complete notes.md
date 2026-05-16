@@ -1,11 +1,11 @@
 ````md
-# AWS Load Balancer — Complete Notes
+AWS Load Balancer — Complete Notes
 
 ---
 
-# 📌 1. What is a Load Balancer?
+📌 1. What is a Load Balancer?
 
-## Definition
+Definition
 A Load Balancer is a networking service that distributes incoming traffic across multiple targets (EC2 instances, containers, IP addresses, Lambda functions) in one or more Availability Zones to ensure:
 
 - High Availability
@@ -15,7 +15,7 @@ A Load Balancer is a networking service that distributes incoming traffic across
 
 ---
 
-## 🍽️ Real-World Analogy
+🍽️ Real-World Analogy
 
 Imagine a **restaurant with multiple billing counters**.
 
@@ -23,14 +23,14 @@ A manager stands at the entrance and sends customers to the counter with the **s
 
 That manager is exactly like a **Load Balancer**.
 
-### Result:
+Result:
 - No single counter gets overloaded
 - Customers are served faster
 - If one counter fails, others continue working
 
 ---
 
-# ✅ Key Benefits of Load Balancers
+#✅ Key Benefits of Load Balancers
 
 1. High Availability: Distributes traffic across multiple Availability Zones
 2. Fault Tolerance: Stops sending traffic to unhealthy servers
@@ -42,9 +42,8 @@ That manager is exactly like a **Load Balancer**.
 
 ---
 
-# 🌐 AWS Elastic Load Balancing (ELB) Family
+🌐 AWS Elastic Load Balancing (ELB) Family
 
-```text
 ┌──────────────────────────────────────────────────────────────┐
 │              AWS Elastic Load Balancing (ELB)               │
 ├──────────────────────┬──────────────────────┬───────────────┤
