@@ -5,7 +5,8 @@ AWS Load Balancer — Complete Notes
 📌 1. What is a Load Balancer?
 
 Definition
-A Load Balancer is a networking service that distributes incoming traffic across multiple targets (EC2 instances, containers, IP addresses, Lambda functions) in one or more Availability Zones to ensure:
+A Load Balancer is a networking service that distributes incoming traffic across multiple targets (EC2 instances, containers, IP addresses,
+Lambda functions) in one or more Availability Zones to ensure:
 
 - High Availability
 - Fault Tolerance
