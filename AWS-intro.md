@@ -830,6 +830,418 @@ EC2 → Elastic IPs → Select EIP
 The IP returns to AWS pool. Billing stops immediately.
 ```
 
+## ⚖️ Auto Scaling Groups
+
+### 💡 What is an Auto Scaling Group?
+
+An **Auto Scaling Group (ASG)** is an AWS service that automatically manages the number of EC2 instances running your application. It watches your infrastructure, responds to changes in demand, and keeps your application available — all without any manual intervention.
+
+Think of it like a smart staffing agency for your servers. When your website gets a traffic spike, the agency automatically hires more servers. When traffic drops at night, it lets some go. You define the rules, it handles the execution.
+
+```
+Traffic Pattern vs Instance Count:
+
+9 AM  — Office opens, traffic spikes
+        ASG detects CPU > 70%
+        Launches 2 new instances ↑
+
+2 PM  — Steady traffic
+        ASG maintains current count
+        No change needed
+
+11 PM — Traffic drops overnight
+        ASG detects CPU < 30%
+        Terminates extra instances ↓
+
+Result: You always have exactly what you need ✅
+        No over-provisioning, no under-provisioning
+```
+
+---
+
+### 🔑 Core Concepts
+
+| Term | What It Means |
+|---|---|
+| **Launch Template** | The blueprint ASG uses to create each new instance (AMI, type, SG, startup script) |
+| **Desired Capacity** | The number of instances ASG actively tries to maintain right now |
+| **Minimum Capacity** | Hard floor — ASG will never go below this count, even at zero load |
+| **Maximum Capacity** | Hard ceiling — ASG will never exceed this, even at peak load |
+| **Scaling Policy** | The rules that decide when to add or remove instances |
+| **Health Check** | ASG continuously checks instances — unhealthy ones get replaced automatically |
+
+```
+Capacity Boundaries Visualized:
+
+Maximum: 8  ████████ ← ASG never exceeds this
+                 ↕  scaling happens here
+Desired:  4  ████     ← Current target
+                 ↕  scaling happens here
+Minimum:  2  ██       ← ASG never drops below this
+```
+
+---
+
+### 📈 Scaling Policy Types
+
+| Policy | How It Decides to Scale | Best For |
+|---|---|---|
+| **Target Tracking** | Keeps a specific metric at your target (e.g., CPU stays at 50%) | Most common — simple and effective |
+| **Step Scaling** | Scales by defined amounts at different alarm thresholds | Fine-grained control over scale steps |
+| **Scheduled** | Scales at specific times you define (e.g., 9 AM add 3, 10 PM remove 3) | Predictable traffic patterns |
+| **Predictive** | Uses ML to forecast traffic and pre-scales ahead of time | Large applications with historical data |
+
+```
+Target Tracking Example:
+
+Target: CPU = 50%
+
+CPU hits 75% → Too high → ASG adds instances → CPU drops back toward 50%
+CPU drops 20% → Too low → ASG removes instances → CPU rises back toward 50%
+CPU stays 50% → Perfect → ASG does nothing
+```
+
+---
+
+### 🏗️ Why Use an ASG?
+
+```
+Without ASG:                    With ASG:
+─────────────                   ──────────
+Traffic spike → site crashes    Traffic spike → new instances launch ✅
+Low traffic → paying for idle   Low traffic → idle instances removed ✅
+Instance dies → site is down    Instance dies → replaced in minutes ✅
+You manually scale at 3am       ASG scales while you sleep ✅
+Fixed monthly cost              Pay only for what you use ✅
+```
+
+**Four Core Benefits:**
+
+- 🟢 **High Availability** — Failed instances are detected and replaced automatically without any downtime
+- 💰 **Cost Efficiency** — You scale in during quiet periods and scale out only when demand requires it
+- 🤖 **Zero Manual Work** — Load-based decisions happen automatically based on your defined rules
+- 🔀 **ALB Integration** — New instances register themselves to target groups and start receiving traffic immediately
+
+---
+
+### ⚙️ ASG Scaling Flow Diagram
+
+```
+              ┌──────────────────────────────────────────┐
+              │           Auto Scaling Group             │
+              │                                          │
+              │   ┌─────────────────────────────────┐   │
+CPU > 70% ───►│   │  📈 Scale Out — add instances   │   │
+              │   │  New instances launch from LT    │   │
+              │   │  Register to ALB target group    │   │
+              │   └─────────────────────────────────┘   │
+              │                                          │
+              │   ┌─────────────────────────────────┐   │
+CPU < 30% ───►│   │  📉 Scale In — remove instances │   │
+              │   │  Drain connections from ALB      │   │
+              │   │  Terminate extra instances       │   │
+              │   └─────────────────────────────────┘   │
+              │                                          │
+              │     Min: 2    Desired: 4    Max: 8       │
+              └──────────────────────────────────────────┘
+```
+
+---
+
+### 🚀 Hands-On: Create a Launch Template
+
+A Launch Template is the instruction set ASG follows every time it needs to create a new instance. Get this right and every auto-launched instance is identical and production-ready from second one.
+
+#### What the Launch Template Defines
+
+```
+Launch Template: web-server-lt
+─────────────────────────────────────────
+AMI          → Which OS + software image
+Instance Type → How powerful each server is
+Key Pair     → SSH access credentials
+Security Group → Firewall rules
+Storage      → Disk size and type
+User Data    → Startup script that runs on first boot
+```
+
+#### Step-by-Step
+
+**1. Open Launch Templates**
+- EC2 Dashboard → Left sidebar → **Launch Templates**
+- Click **"Create launch template"**
+
+**2. Template Details**
+
+| Field | Value |
+|---|---|
+| Launch template name | web-server-lt |
+| Version description | v1 — Apache web server |
+| Auto Scaling guidance | ✅ Check this box |
+
+**3. AMI and Instance**
+
+| Field | Value |
+|---|---|
+| AMI | Amazon Linux 2023 (Free Tier Eligible) |
+| Instance type | t3.small |
+| Key pair | Select your existing key pair |
+
+**4. Network Settings**
+
+| Field | Value |
+|---|---|
+| Subnet | Do NOT specify — ASG will choose |
+| Security groups | Select `web-sg` |
+
+> Leaving subnet blank lets the ASG distribute instances across multiple AZs — critical for high availability.
+
+**5. Storage**
+
+| Field | Value |
+|---|---|
+| Volume type | gp3 |
+| Size | 8 GiB |
+
+**6. User Data Script** (Advanced Details → User Data)
+
+```bash
+#!/bin/bash
+
+# Update system packages
+apt update -y
+
+# Install Apache web server
+apt install -y apache2
+
+# Start and enable Apache
+systemctl start apache2
+systemctl enable apache2
+
+# Fetch instance ID from metadata service (IMDSv2)
+TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+
+INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+  http://169.254.169.254/latest/meta-data/instance-id)
+
+# Create a page that shows which instance is serving the request
+echo "<h1>Response from Instance: $INSTANCE_ID</h1>" > /var/www/html/index.html
+```
+
+> **What this script does:** Every time ASG launches a new instance, this script runs automatically. It installs Apache, starts it, and creates a webpage showing the instance ID — so you can visually confirm load balancing is working.
+
+- Click **"Create launch template"** ✅
+
+---
+
+### 🚀 Hands-On: Create the Auto Scaling Group
+
+#### Step-by-Step
+
+**Step 1 — Name and Launch Template**
+- EC2 → **Auto Scaling Groups → Create Auto Scaling Group**
+
+| Field | Value |
+|---|---|
+| Auto Scaling group name | web-asg |
+| Launch template | web-server-lt |
+| Version | Latest (always uses newest template version) |
+
+---
+
+**Step 2 — Network Configuration**
+
+| Field | Value |
+|---|---|
+| VPC | Your production VPC |
+| Availability Zones / Subnets | `app-private-subnet-1a` AND `app-private-subnet-1b` |
+
+> Always select **at least 2 subnets in different AZs**. If one AZ goes down, your instances in the other AZ keep serving traffic.
+
+```
+ASG Multi-AZ Layout:
+
+AZ: ap-south-1a          AZ: ap-south-1b
+┌──────────────┐         ┌──────────────┐
+│  Instance 1  │         │  Instance 2  │
+│  Instance 3  │         │  Instance 4  │
+└──────────────┘         └──────────────┘
+         └──────── ALB routes to both ───────┘
+
+If 1a goes down → 1b still serves all traffic ✅
+```
+
+---
+
+**Step 3 — Load Balancer Integration**
+
+| Field | Value |
+|---|---|
+| Load balancing | Attach to an existing load balancer |
+| Target group | Select `web-tg` |
+| Health checks | ✅ Enable Elastic Load Balancing health checks |
+| Health check grace period | 300 seconds |
+
+> **Why 300 seconds grace period?** When a new instance launches, it needs time to finish the user data script, start Apache, and become ready. Without this grace period, ASG might mark it unhealthy before it's done booting and terminate it immediately.
+
+---
+
+**Step 4 — Capacity and Scaling**
+
+| Setting | Value |
+|---|---|
+| Desired capacity | 2 |
+| Minimum capacity | 2 |
+| Maximum capacity | 6 |
+| Scaling policy type | Target tracking |
+| Metric | Average CPU Utilization |
+| Target value | 50% |
+
+```
+What Target Tracking at 50% CPU means:
+
+2 instances running, CPU hits 75% average:
+  → CloudWatch alarm triggers
+  → ASG launches 1-2 more instances
+  → Load spreads across more instances
+  → CPU average drops back toward 50%
+
+Traffic decreases, CPU drops to 20%:
+  → ASG identifies excess instances
+  → Drains connections via ALB
+  → Terminates extra instances
+  → CPU rises back toward 50%
+```
+
+---
+
+**Step 5 — Notifications (Optional but Recommended)**
+
+- Add an SNS topic to receive email alerts when ASG launches or terminates instances
+- Useful for auditing and keeping track of scaling events in production
+
+---
+
+**Step 6 — Review and Create**
+- Review all settings
+- Click **"Create Auto Scaling Group"** ✅
+
+---
+
+### ✅ Verify the ASG is Working
+
+**Check Scaling Activity:**
+```
+EC2 → Auto Scaling Groups → Select web-asg → Activity tab
+
+You should see entries like:
+  ✅ Launching instance i-0abc123 — Successful
+  ✅ Launching instance i-0def456 — Successful
+```
+
+**Check Instances Were Created:**
+```
+EC2 → Instances
+
+Filter by ASG name tag → web-asg
+You should see 2 instances in Running state
+Both should be in different AZs (1a and 1b)
+```
+
+**Check Target Group Registration:**
+```
+EC2 → Target Groups → web-tg → Targets tab
+
+Both instances should appear as:
+  Status: Healthy ✅
+  Port: 80
+```
+
+---
+
+### 🧪 Test Auto Scaling — Simulate a CPU Spike
+
+This test confirms your scaling policy actually works by artificially driving up CPU and watching ASG respond.
+
+**SSH into one of the ASG instances:**
+```bash
+ssh -i my-keypair.pem ec2-user@INSTANCE_PUBLIC_IP
+```
+
+**Install the stress testing tool:**
+```bash
+sudo yum install -y stress
+```
+
+**Run CPU stress test:**
+```bash
+# Stress 4 CPU cores for 5 minutes
+stress --cpu 4 --timeout 300
+```
+
+**Watch what happens in the console:**
+```
+1. CloudWatch picks up rising CPU metric
+        ↓
+2. CPU average crosses 50% threshold
+        ↓
+3. CloudWatch alarm state changes to ALARM
+        ↓
+4. ASG receives scale-out signal
+        ↓
+5. New instance launches from web-server-lt
+        ↓
+6. New instance registers to web-tg
+        ↓
+7. ALB starts routing traffic to it
+        ↓
+8. CPU load spreads → metric drops back toward 50%
+```
+
+Monitor in real time:
+```
+EC2 → Auto Scaling Groups → web-asg
+→ Activity tab           ← Watch new launch events appear
+→ Monitoring tab         ← Watch CPU metric graph
+→ Instance management    ← Watch new instances appear
+```
+
+After stress test ends:
+```
+CPU drops → alarm clears → scale-in eventually occurs
+(scale-in has a cooldown period — usually 5-15 min after CPU drops)
+```
+
+---
+
+### 📋 ASG Quick Reference
+
+```
+🔑 Key Numbers to Set:
+   Min  = the floor you never drop below (for HA, set ≥ 2)
+   Max  = the ceiling you never exceed (controls cost)
+   Desired = where you start right now
+
+⏱️  Timing to Know:
+   Health check grace period: 300 sec (let instance finish booting)
+   Scale-out cooldown: ~60-300 sec (wait before adding more)
+   Scale-in cooldown: ~300 sec (wait before removing — prevents flapping)
+
+✅  Always Do:
+   → Spread across 2+ AZs (never single AZ for production)
+   → Attach to a Target Group (ALB handles traffic distribution)
+   → Enable ELB health checks (not just EC2 health checks)
+   → Set meaningful Min ≥ 2 (single instance = single point of failure)
+
+❌  Avoid:
+   → Min = 0 (application goes completely down during low traffic)
+   → Single AZ deployment (one AZ outage = full outage)
+   → No scaling policy (defeats the purpose of ASG)
+   → Grace period too short (instances get terminated before they're ready)
+```
+
+---
 ---
 
 ## 📚 Quick Reference Summary
@@ -845,6 +1257,7 @@ The IP returns to AWS pool. Billing stops immediately.
 | **Snapshots** | Point-in-time EBS backup stored in S3 |
 | **ENI** | Virtual network card that connects instance to VPC |
 | **Elastic IP** | Your own static public IP that never changes |
+| **Autoscaling Groups** | Increases resources based on requirements automatically |
 
 ---
 
